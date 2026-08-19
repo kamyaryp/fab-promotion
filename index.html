@@ -293,44 +293,8 @@
     100%{ color: var(--promo-rest); }
   }
 
-  /* ---- celebration glyph (🎉) -----------------------------------------
-     The emoji is NOT a letter and shouldn't be treated like one. As part of
-     the ordinary wave it sat there fully visible before the crest arrived,
-     got a 1.19 nudge, then froze — a dead static pose at the end.
-     Instead it gets its own beat, fired at the moment the crest reaches it
-     (it is the last glyph in reading order, so this lands as the pay-off):
-     absent at zero scale, a hard overshooting pop, a decaying wobble, then
-     it lifts away and fades out — leaving nothing frozen behind.
-     `both` fill is what keeps it invisible during its delay AND keeps it
-     gone at the end. */
-  .fab.promo .promo-text .ch.celebrate{
-    transform-origin: 50% 60%;
-    animation: ch-pop var(--ch-pop-dur, 1300ms) linear var(--ch-delay) both;
-  }
-
-  @keyframes ch-pop{
-    0%  { opacity:0; transform: scale(0)    rotate(-35deg) translateY(0);
-          animation-timing-function: cubic-bezier(.2,1.5,.4,1); }
-    12% { opacity:1; transform: scale(1.4)  rotate(10deg)  translateY(-1px);
-          animation-timing-function: cubic-bezier(.4,0,.5,1); }
-    24% { opacity:1; transform: scale(1.02) rotate(-9deg)  translateY(0);
-          animation-timing-function: cubic-bezier(.3,0,.4,1); }
-    36% { opacity:1; transform: scale(1.26) rotate(7deg)   translateY(-1px);
-          animation-timing-function: cubic-bezier(.4,0,.5,1); }
-    48% { opacity:1; transform: scale(1.08) rotate(-5deg)  translateY(0);
-          animation-timing-function: cubic-bezier(.35,0,.45,1); }
-    60% { opacity:1; transform: scale(1.18) rotate(3deg)   translateY(-1px);
-          animation-timing-function: cubic-bezier(.4,0,.5,1); }
-    72% { opacity:1; transform: scale(1.1)  rotate(-1deg)  translateY(0);
-          animation-timing-function: cubic-bezier(.3,0,.7,.6); }
-    100%{ opacity:0; transform: scale(.45)  rotate(14deg)  translateY(-7px); }
-  }
-
   @media (prefers-reduced-motion: reduce){
     .fab.promo .promo-text .ch{ animation:none; }
-  }
-  @media (prefers-reduced-motion: reduce){
-    .fab.promo .promo-text .ch.celebrate{ animation:none; opacity:1; }
   }
 
   /* tag / sparkle badge (user-supplied SVG, restarted on every replay) */
@@ -521,7 +485,7 @@
 
       <div class="promo-banner">
         <p class="promo-text" dir="rtl" id="promoText">
-          <span class="src" id="promoSrc">تخفیف ویژه امروز فقط برای شما فعال شد. 🎉</span>
+          <span class="src" id="promoSrc">تخفیف ویژه امروز فقط برای شما فعال شد.</span>
           <span class="glyphs" id="promoGlyphs" aria-hidden="true"></span>
         </p>
         <div class="tag-wrap">
@@ -580,13 +544,11 @@
     CH_DUR_MS:       480,    // one letter's full pulse incl. undershoot
     LEAD_IN_MS:      200,    // sparkles land this long before letter #1 moves
     TAG_SWING_MS:   1000,    // the supplied tag SVG's built-in swing
-    POP_MS:         1300,    // the celebration glyph's pop / wobble / exit
   };
   const WAVE = {
     SPEED_MS_PER_PX: BASE.SPEED_MS_PER_PX * TIME_SCALE,
     CH_DUR_MS:       BASE.CH_DUR_MS       * TIME_SCALE,
     LEAD_IN_MS:      BASE.LEAD_IN_MS      * TIME_SCALE,
-    POP_MS:          BASE.POP_MS          * TIME_SCALE,
   };
   document.documentElement.style.setProperty('--t-scale', TIME_SCALE);
 
@@ -637,8 +599,7 @@
         if (!contentH) contentH = rect.height;
 
         const span = document.createElement('span');
-        /* pictographs get the celebration beat, letters get the wave */
-        span.className = /\p{Extended_Pictographic}/u.test(c) ? 'ch celebrate' : 'ch';
+        span.className = 'ch';
 
         let content = c;
         if (isArabicLetter(c)){
@@ -711,7 +672,6 @@
       const d = Math.abs(originX - g.centre) * WAVE.SPEED_MS_PER_PX;
       g.span.style.setProperty('--ch-delay', (WAVE.LEAD_IN_MS + d) + 'ms');
       g.span.style.setProperty('--ch-dur',   WAVE.CH_DUR_MS + 'ms');
-      g.span.style.setProperty('--ch-pop-dur', WAVE.POP_MS + 'ms');
       last = Math.max(last, d);
     }
     return WAVE.LEAD_IN_MS + last + WAVE.CH_DUR_MS;
