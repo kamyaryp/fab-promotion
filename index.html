@@ -739,12 +739,29 @@
     scheduleWave(buildGlyphs());
   }
 
-  function openCard(){
-    buildScene();
-    requestAnimationFrame(() => fab.classList.add('promo'));
+  /* How long the card stays open before returning to its origin state. This is
+     dwell time, not motion, so it is deliberately NOT scaled by TIME_SCALE —
+     retiming the animation should not change how long the message is readable.
+     It is measured from the moment the card opens, and the whole reveal
+     (wave + sparkles) lands well inside it, leaving ~1.5s of read time. */
+  const AUTO_CLOSE_MS = 3000;
+
+  let autoClose, pending;
+
+  function closeCard(){
+    clearTimeout(autoClose);
+    fab.classList.remove('promo');
   }
 
-  let pending;
+  function openCard(){
+    buildScene();
+    requestAnimationFrame(() => {
+      fab.classList.add('promo');
+      clearTimeout(autoClose);
+      autoClose = setTimeout(closeCard, AUTO_CLOSE_MS);
+    });
+  }
+
   /* Replay the WHOLE reveal, not just the wave.
      Toggling the class off and straight back on within one frame does not
      work: the browser coalesces both changes into a single style pass, sees
@@ -755,6 +772,7 @@
      so the sentence stays visible while the card collapses. */
   function play(){
     clearTimeout(pending);
+    clearTimeout(autoClose);   // otherwise a stale timer shuts the new run early
     if (!fab.classList.contains('promo')){ openCard(); return; }
     fab.classList.remove('promo');
     pending = setTimeout(openCard, CLOSE_MS);
