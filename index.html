@@ -441,16 +441,15 @@
   /* The toman mark, from the supplied SVG. 13x8 is its natural size and also
      exactly what the Figma frame reserves for it (the 13x8 "Vector" node
      sitting to the left of the price), so it is used 1:1 rather than scaled.
-     currentColor rather than the SVG's baked-in black, so it keeps the same
-     muted tone the word "تومان" had — swap the `color` below to #000 to match
-     the price weight instead. */
+     currentColor rather than the SVG's baked-in black, so the tone is set in
+     one place by the `color` below. */
   .cart-price .amount .toman{
     display:inline-block;
     width:13px;
     height:8px;
     /* in RTL, inline-start is the side facing the number */
     margin-inline-start:4px;
-    color: var(--gray-600);
+    color: #000000;
   }
   .cart-price .amount .toman svg{
     display:block;
@@ -499,7 +498,7 @@
           <svg width="7" height="12" viewBox="0 0 7 12" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M6 1L1 6L6 11" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          تکمیل خرید
+          سبد خرید
         </button>
 
         <div class="cart-summary">
