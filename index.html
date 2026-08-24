@@ -533,6 +533,15 @@
   document.documentElement.style.setProperty('--t-scale', TIME_SCALE);
 
   const HOLD_MS  = 3000;   // promo dwell, and how long completion is held
+
+  /* Taken from the fill's own transition rather than duplicated as a number —
+     retiming the CSS cannot silently desync the celebration sequence. */
+  const FILL_MS = (() => {
+    const el = document.getElementById('fillBar');
+    const v = el ? getComputedStyle(el).transitionDuration.split(',')[0].trim() : '';
+    const ms = v.endsWith('ms') ? parseFloat(v) : parseFloat(v) * 1000;
+    return Number.isFinite(ms) && ms > 0 ? ms : 583;
+  })();
   const CLOSE_MS = (() => {
     const v = getComputedStyle(document.documentElement).getPropertyValue('--expand-dur').trim();
     const ms = v.endsWith('ms') ? parseFloat(v) : parseFloat(v) * 1000;
@@ -723,7 +732,7 @@
 
   /* ======================= state ======================= */
   const state = { promo:false, prog:false, pct:65, done:false };
-  let holdTimer, pending;
+  let holdTimer, pending, seqTimer;
 
   function showRow(which){
     rowWave.classList.toggle('active', which === 'wave');
@@ -764,23 +773,37 @@
   /* Completion: the card grows 8px taller, the fill covers the whole width, the
      banner swaps in — and the promo's per-letter crest runs over that new
      sentence — with the burst playing from behind. */
+  /* Completion runs in TWO phases rather than all at once.
+     Phase 1 tops the bar up to 100% on its own — the reward has to look earned
+     before it is announced. Phase 2 waits for that fill to actually land, then
+     grows the card, swaps in the banner with the crest running over it, and
+     fires the burst. Firing them together made the celebration read as
+     unrelated to the bar reaching its goal. */
   function celebrate(){
-    clearTimeout(holdTimer); clearTimeout(pending);
+    clearTimeout(holdTimer); clearTimeout(pending); clearTimeout(seqTimer);
     state.done = true;
     fab.classList.remove('promo-on');
-    fab.classList.add('open','prog','done');
-    showRow('wave');
-    tagWrap.classList.add('hide');
-    waveIcon.innerHTML = CHECK_ICON;
+    fab.classList.add('open','prog');
+
+    // --- phase 1: fill to full, nothing else ---
     fillBar.style.setProperty('--fill-w', '100%');
     cartAmount.textContent = fa(TARGET);
-    runWaveText(DONE_TEXT);
-    playSpark();
-    holdTimer = setTimeout(resetToDefault, HOLD_MS);
+
+    // --- phase 2: once it is full, celebrate ---
+    seqTimer = setTimeout(() => {
+      fab.classList.add('done');          // card grows the extra 8px
+      showRow('wave');
+      tagWrap.classList.add('hide');
+      waveIcon.innerHTML = CHECK_ICON;
+      runWaveText(DONE_TEXT);
+      playSpark();
+      holdTimer = setTimeout(resetToDefault, HOLD_MS);
+    }, FILL_MS + 60);                     // +60ms so the bar visibly settles
   }
 
   // back to the plain FAB with every toggle cleared
   function resetToDefault(){
+    clearTimeout(seqTimer);
     state.done = false; state.promo = false; state.prog = false;
     fab.classList.remove('done','wave-on','promo-on');
     sync(); apply();
@@ -793,7 +816,7 @@
   }
 
   function apply(opts){
-    clearTimeout(pending); clearTimeout(holdTimer);
+    clearTimeout(pending); clearTimeout(holdTimer); clearTimeout(seqTimer);
     state.done = false;
     fab.classList.remove('done','promo-on','wave-on');
     fab.classList.toggle('prog', state.prog);
