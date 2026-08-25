@@ -17,8 +17,8 @@
   }
 
   :root{
-    --accent: #E1522C;
-    --accent-dark: #b5401f;
+    --accent: #ED1944;
+    --accent-dark: #B51334;
     --cream: #F4F3EC;
     --white: #FFFFFF;
     --gray-200: #E8E8E8;
@@ -684,7 +684,10 @@
   /* ======================= sparkles ======================= */
   const STAR = (c,o) => `<svg viewBox="0 0 24 24" fill="${c}" opacity="${o}"><path d="M12 0c1 7 4 11 12 12-8 1-11 5-12 12-1-7-4-11-12-12C8 11 11 7 12 0Z"/></svg>`;
   const DOT  = (c,o) => `<svg viewBox="0 0 24 24" fill="${c}" opacity="${o}"><circle cx="12" cy="12" r="12"/></svg>`;
-  const A='#E1522C', A_SOFT='#F09A80', A_PALE='#F8CDC0', COOL='#A9B6E8', COOL_PALE='#C9D2F2';
+  /* the two warm tints are the accent stepped toward white at the same
+     lightness ratios the previous palette used, so the burst stays in key
+     with the primary instead of drifting */
+  const A='#ED1944', A_SOFT='#F57E96', A_PALE='#FAC0CC', COOL='#A9B6E8', COOL_PALE='#C9D2F2';
   const SPARKS = [
     // destX, destY (px from the tag centre — where it FLIES TO), size, delay, spin, shape
     [-19,-13, 11,   0,  38, STAR(COOL_PALE,.95)],
