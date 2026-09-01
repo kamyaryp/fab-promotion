@@ -117,6 +117,8 @@
        (x2 .24) to spend the reclaimed time on the landing instead. */
     --seq-ease: cubic-bezier(.21,.78,.24,1);
     --swap-dur: .58s;
+    /* the digit roll's own curve — see the .dg rules */
+    --dg-ease: cubic-bezier(.32,.45,.5,1);
   }
 
   *{ box-sizing:border-box; }
@@ -365,6 +367,12 @@
     width:24px; text-align:center;
     font-size:14px; line-height:24px; font-weight:600; color:#000;
     user-select:none;
+    /* the roll's cell height here — the stepper's line, not the total's 28 */
+    --dg-h:24px;
+    /* the cells are inline-blocks, and inside this RTL page a run of them lays
+       out right to left, which would reverse a two-digit quantity the same way
+       it once reversed the total */
+    direction:ltr; unicode-bidi:isolate;
   }
   /* A flat disc, no shadow — and always the opposite tone to the track it sits
      on, which is how the design keeps it readable in both places: white on the
@@ -1189,13 +1197,18 @@
      LTR run whatever surrounds it, so the cells get their own direction; the
      toman mark is outside this element, so it keeps its place on the left. */
   .cart-price .amount #cartAmount{ flex:none; direction:ltr; unicode-bidi:isolate; white-space:nowrap; }
-  .cart-price .amount .dg{
-    display:inline-block; vertical-align:top;
-    height:28px; overflow:hidden;
+  /* The roll is not the total's any more — the stepper uses it too — so the one
+     thing that differed between the two places, the height of a cell, is a
+     variable the host sets. Everything else is shared. */
+  .dg{
+    display:inline-block; vertical-align:top; text-align:center;
+    height:var(--dg-h, 28px); overflow:hidden;
   }
-  .cart-price .amount .dg{ text-align:center; }
-  .cart-price .amount .dg > b{ display:block; position:relative; font-weight:inherit; }
-  .cart-price .amount .dg > b > i{ display:block; height:28px; line-height:28px; font-style:normal; }
+  .dg > b{ display:block; position:relative; font-weight:inherit; }
+  .dg > b > i{
+    display:block; font-style:normal;
+    height:var(--dg-h, 28px); line-height:var(--dg-h, 28px);
+  }
   /* This face has no tabular figures — ۱ and ۹ differ by nearly 3px — so a cell
      holding both the outgoing and incoming glyph in flow took the width of the
      WIDER of the two for the length of the roll, and the total bulged. That
@@ -1203,15 +1216,22 @@
      is the shrink-then-refill. Only the incoming glyph is in flow now, so the
      cell is at its settled width from the first frame; the outgoing one is
      lifted out and simply slides through. */
-  .cart-price .amount .dg > b > i.from{
+  .dg > b > i.from{
     position:absolute; left:0; right:0;
   }
-  .dg.up   > b > i.from{ top:-28px; }
-  .dg.down > b > i.from{ top:28px;  }
-  .dg.up > b   { animation: dg-up   .46s var(--soft) var(--dg-delay, 0ms) both; }
-  .dg.down > b { animation: dg-down .46s var(--soft) var(--dg-delay, 0ms) both; }
-  @keyframes dg-up  { from{ transform:translateY(28px)  } to{ transform:translateY(0) } }
-  @keyframes dg-down{ from{ transform:translateY(-28px) } to{ transform:translateY(0) } }
+  .dg.up   > b > i.from{ top:calc(var(--dg-h, 28px) * -1); }
+  .dg.down > b > i.from{ top:var(--dg-h, 28px);  }
+  /* Its own curve rather than --soft. --soft is front-loaded enough to put 92%
+     of the travel in the first half, which over 24px means the glyph has all
+     but arrived by 210ms and the rest is sub-pixel — brisk, not gentle. This
+     one spreads the motion across the whole duration (50% at half time, 95% at
+     76%), so the digit is visibly moving for the length of the roll and still
+     lands without a bump. Shared by the total and the stepper: one roll, one
+     curve. */
+  .dg.up > b   { animation: dg-up   .46s var(--dg-ease) var(--dg-delay, 0ms) both; }
+  .dg.down > b { animation: dg-down .46s var(--dg-ease) var(--dg-delay, 0ms) both; }
+  @keyframes dg-up  { from{ transform:translateY(var(--dg-h, 28px))            } to{ transform:translateY(0) } }
+  @keyframes dg-down{ from{ transform:translateY(calc(var(--dg-h, 28px) * -1)) } to{ transform:translateY(0) } }
   @media (prefers-reduced-motion: reduce){
     .dg.up > b, .dg.down > b{ animation:none; transform:none; }
   }
@@ -1711,10 +1731,14 @@
     off:'۲۰٪', save:100000, qty:1, thumb:TABIAT,
   };
 
+  /* data-qty is the quantity, not the text in the cell. Mid-roll the cell holds
+     both the outgoing and the incoming glyph, so reading it back would give
+     "۱۲" for a step from ۱ to ۲ — which is exactly what the basket would then
+     charge for. The number lives in the attribute and the cell only shows it. */
   function stepper(qty){
-    return `<div class="stepper">
+    return `<div class="stepper" data-qty="${qty}">
         <button class="qty-btn" type="button" aria-label="کاهش">${MINUS_SVG}</button>
-        <span class="qty">${fa(qty)}</span>
+        <span class="qty">${digitCells(fa(qty))}</span>
         <button class="qty-btn qty-plus" type="button" aria-label="افزایش">${PLUS_SVG}</button>
       </div>`;
   }
@@ -1986,46 +2010,55 @@
   document.querySelector('.items-card').addEventListener('click', e => {
     const btn = e.target.closest('.qty-btn');
     if (!btn) return;
-    const cell = btn.closest('.stepper').querySelector('.qty');
-    const cur  = faNum(cell.textContent);
-    cell.textContent = fa(Math.max(1, Math.min(99, cur + (btn.classList.contains('qty-plus') ? 1 : -1))));
+    const step = btn.closest('.stepper');
+    const cur  = +step.dataset.qty || 1;
+    const next = Math.max(1, Math.min(99, cur + (btn.classList.contains('qty-plus') ? 1 : -1)));
+    if (next === cur) return;              // already at a bound — nothing moved
+    step.dataset.qty = next;
+    rollDigits(step.querySelector('.qty'), fa(cur), fa(next), Math.sign(next - cur));
     pushBasket();
   });
 
   /* ======================= the bar's total ======================= */
-  const faNum = t => [...t].reduce((n,c) => n*10 + Math.max(0, '۰۱۲۳۴۵۶۷۸۹'.indexOf(c)), 0);
 
   /* The total is the basket, summed off the rows themselves, so a stepper tap and
      a price change are the same event and the two can never disagree. */
   function basketTotal(){
     let sum = 0;
     for (const row of document.querySelectorAll('.items-card .item[data-price]')){
-      const cell = row.querySelector('.qty');
-      if (!cell) continue;                    // the alternative is not in the cart yet
-      sum += (+row.dataset.price || 0) * faNum(cell.textContent);
+      const step = row.querySelector('.stepper');
+      if (!step) continue;                    // the alternative is not in the cart yet
+      /* the attribute, never the cell's text — see stepper() */
+      sum += (+row.dataset.price || 0) * (+step.dataset.qty || 0);
     }
     return sum;
   }
 
-  let shownAmount = null, shownValue = 0;
-  /* A digit that did not change must not move, or the whole number twitches on
+  /* ---- the digit roll, shared ----
+     Written once and used by both the bar's total and every stepper. The only
+     difference between the two is the height of a cell, and that is CSS's
+     business (--dg-h), so nothing here needs to know which it is driving.
+
+     A digit that did not change must not move, or the whole number twitches on
      every update — so the two strings are compared position by position and only
      the differing cells get a column to slide. Different lengths are set without
      a roll: every position has shifted, so there is nothing to roll between. */
-  function setCartAmount(n){
-    const next = fa(n);
-    const prev = shownAmount;
-    const dir  = prev === null ? 0 : Math.sign(n - shownValue);
-    shownAmount = next; shownValue = n;
-    if (prev === next) return;
+  /* a declaration, not a const: the lists are painted during init, which runs
+     above this point, and stepper() needs it there */
+  function digitCells(s){
+    return [...s].map(ch => `<span class="dg"><b><i>${ch}</i></b></span>`).join('');
+  }
 
+  function rollDigits(el, prev, next, dir){
+    if (prev === next) return;
+    el.dataset.dgValue = next;
     const cells = [...next];
-    if (prev === null || prev.length !== next.length || dir === 0){
-      cartAmount.innerHTML = cells.map(ch => `<span class="dg"><b><i>${ch}</i></b></span>`).join('');
+    if (prev == null || prev.length !== cells.length || !dir){
+      el.innerHTML = digitCells(next);
       return;
     }
     const last = cells.length - 1;
-    cartAmount.innerHTML = cells.map((ch, i) => {
+    el.innerHTML = cells.map((ch, i) => {
       if (prev[i] === ch) return `<span class="dg"><b><i>${ch}</i></b></span>`;
       const delay = (last - i) * 26;                    // least significant leads
       /* the incoming glyph is the one left in flow, so the cell measures at the
@@ -2033,20 +2066,24 @@
       return `<span class="dg ${dir > 0 ? 'up' : 'down'}" style="--dg-delay:${delay}ms">`
            + `<b><i class="to">${ch}</i><i class="from">${prev[i]}</i></b></span>`;
     }).join('');
-    settleDigits(next);
+    /* Once a column has arrived, collapse it back to the single glyph it landed
+       on. Otherwise the element keeps both glyphs and reads wrong to anything
+       that takes its text. The timer is per element, not one shared timer, or a
+       stepper tap would cancel the total's settle and leave it doubled. */
+    clearTimeout(el._dgSettle);
+    el._dgSettle = setTimeout(() => {
+      if (el.dataset.dgValue !== next) return;          // a newer roll owns it
+      el.innerHTML = digitCells(next);
+    }, 760);
   }
 
-  /* Once a column has arrived, collapse it back to the single glyph it landed
-     on. Otherwise the element keeps both glyphs and the number reads wrong to
-     anything that takes its text — a screen reader, or a copy. */
-  let settleTimer;
-  function settleDigits(value){
-    clearTimeout(settleTimer);
-    settleTimer = setTimeout(() => {
-      if (shownAmount !== value) return;
-      cartAmount.innerHTML = [...value]
-        .map(ch => `<span class="dg"><b><i>${ch}</i></b></span>`).join('');
-    }, 760);
+  let shownAmount = null, shownValue = 0;
+  function setCartAmount(n){
+    const next = fa(n);
+    const prev = shownAmount;
+    const dir  = prev === null ? 0 : Math.sign(n - shownValue);
+    shownAmount = next; shownValue = n;
+    rollDigits(cartAmount, prev, next, dir);
   }
 
   /* ======================= per-letter glyph layer ======================= */
