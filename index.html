@@ -66,6 +66,24 @@
 
     --t-scale: 1.1;
     --expand-dur: .55s;
+    /* The cart page is the same MECHANISM as the promo card — a surface growing
+       out from behind the pill — but not the same timing. The card's ease is
+       heavily front-loaded, which is right over the 46px it travels and reads
+       as a snap over the ~890 the page travels.
+
+       Swapping in --soft did not fix that, it just moved the number: sampled
+       frame by frame, --soft puts 62% of the travel in the first quarter of the
+       time and 92% in the first half, so the sheet visually arrives around
+       200ms and the remaining ~70px creeps out over the next 280ms where no eye
+       follows it. Hence "expands instantly" — the duration was never the
+       problem, the distribution was.
+
+       This curve is chosen on measured distribution rather than by feel: 39% of
+       the travel at a quarter of the time, 75% at half, 95% at 76%. Motion is
+       still plainly happening at the midpoint, and the initial slope is 1.4
+       rather than --soft's 2.25, so it opens without a lurch. */
+    --sheet-dur: .60s;
+    --sheet-ease: cubic-bezier(.32,.45,.5,1);
     --expand-ease: cubic-bezier(.25,.8,.3,1);
     /* easeInSine — the standard bezier for it. Starts almost still and keeps
        gaining speed, so the fill leans into the move rather than braking at
@@ -82,12 +100,20 @@
     /* ---- cart list ---- */
     --lime-300:  #CAF200;
     --lemon-100: #FFFFB2;
+    --green-50:  #F2F9F4;
     --green-100: #E2F1E6;
     --green-300: #9BD0AC;
     --neutral-light: #9DA5A6;
     /* the replacement block opens on a long, unhurried decelerate — no
        overshoot, because the block is revealing content rather than reacting */
     --soft: cubic-bezier(.32,.72,.24,1);
+    /* a long travel wants a faster start and a longer landing than the general
+       soft curve gives — this is what keeps a 900px flight from feeling flung.
+       The initial slope is what decides whether it reads smooth or teleported:
+       .84/.16 = 5.3 launched the piece at ~10px/frame and the first third was a
+       blur, so the start is walked back to .78/.21 = 3.7 and the tail lengthened
+       (x2 .24) to spend the reclaimed time on the landing instead. */
+    --seq-ease: cubic-bezier(.21,.78,.24,1);
     --swap-dur: .58s;
   }
 
@@ -120,7 +146,8 @@
     min-height:520px;
     border-radius:var(--page-radius);
     overflow:hidden;                 /* everything is clipped to the frame */
-    background:var(--gray-200);
+    /* the page the FAB lives on — a different page, so a different ground */
+    background:#000;
   }
 
   /* ================= cart page ================= */
@@ -132,17 +159,72 @@
        on. Before you tap سبد خرید you are somewhere else, so none of this is
        there — it arrives with the cart and leaves with it, rising as it comes
        in so it reads as the same upward motion the bar makes. */
-    opacity:0; transform:translateY(12px);
-    pointer-events:none;
-    transition:
-      opacity   .26s ease,
-      transform .4s var(--expand-ease);
+    /* The container no longer carries the reveal — each piece of the page does,
+       in order. It keeps only the exit, and an entrance short enough not to
+       double up on the pieces' own fades. */
+    opacity:0; pointer-events:none;
+    transition: opacity .3s ease;
   }
   .page.show{
-    opacity:1; transform:none; pointer-events:auto;
-    /* the bar leads by a beat on the way in */
-    transition-delay:.08s;
+    opacity:1; pointer-events:auto;
+    transition: opacity .12s ease;
   }
+
+  /* ================= the page flies in, in order =================
+     Each piece travels up from the bottom to its own place, so its distance is
+     its own — measured at runtime, because it depends on where the piece
+     actually sits. The rows measure from the ITEMS CARD's bottom rather than the
+     frame's: the card clips, so anything further down is invisible dead time,
+     and starting them at its lower edge makes them slide up out from under it.
+
+     Travel and fade are two animations, not one keyframe track, because they
+     want different curves: the travel is a hard-decelerating glide, while the
+     fade wants to be linear and over early (42% of the travel) so the piece is
+     fully opaque for the part of the move the eye can actually follow. Running
+     both off one timing function made the fade front-load with the travel and
+     read as a shimmer on the text.
+
+     translate3d keeps each piece on its own compositor layer for the whole
+     flight; will-change is armed only while the sequence runs and released by
+     seq-done, so ten promoted layers don't outlive the entrance.
+
+     Base state is the SETTLED one: the animations supply the `from`. That way
+     closing the cart drops them and leaves everything visible for the page's
+     own fade-out, instead of snapping each piece to invisible — and re-opening
+     restarts the sequence cleanly, because animation-name goes from none to
+     seq-slide each time. */
+  @keyframes seq-slide{
+    from{ transform: translate3d(0, var(--seq-y, 24px), 0); }
+    to  { transform: translate3d(0, 0, 0); }
+  }
+  @keyframes seq-fade{ from{ opacity:0 } to{ opacity:1 } }
+  .phone.cart-open .page .seq,
+  .phone.cart-open .items-card::before{
+    animation:
+      seq-slide var(--seq-t, 340ms) var(--seq-ease) var(--seq-d, 0ms) both,
+      seq-fade  calc(var(--seq-t, 340ms) * .42) linear var(--seq-d, 0ms) both;
+    will-change: transform, opacity;
+  }
+  .phone.cart-open.seq-done .page .seq,
+  .phone.cart-open.seq-done .items-card::before{ will-change: auto; }
+  /* A piece parked a page-height below would extend the scroll layer's own
+     overflow while it flies. Nothing is scrollable during the entrance anyway. */
+  .phone.cart-open .scroll{ overflow:hidden; }
+  .phone.cart-open.seq-done .scroll{ overflow-y:auto; }
+  @media (prefers-reduced-motion: reduce){
+    .phone.cart-open .page .seq,
+    .phone.cart-open .items-card::before{ animation:none; will-change:auto; }
+  }
+
+  /* The items card's own surface has to animate apart from its rows, or fading
+     the card would fade everything inside it and the rows would arrive through
+     a half-transparent parent. So the surface moves to a layer of its own. */
+  .items-card::before{
+    content:''; position:absolute; inset:0; z-index:0;
+    background: var(--gray-0); border-radius:16px;
+    --seq-d:430ms; --seq-t:470ms;
+  }
+  .items-card > *{ position:relative; z-index:1; }
 
   /* ---- header: close on the left, title filling the rest ---- */
   .cart-head{ display:flex; align-items:flex-start; height:32px; margin-bottom:4px; }
@@ -168,59 +250,37 @@
     text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
 
-  /* ---- shop + address ---- */
+  /* ---- shop ----
+     One 48px row now, no address: [مشاهده فروشگاه][name][store mark], laid out
+     left to right exactly as the design has it, with only the text runs RTL. */
   .shop-card{
     background: var(--gray-0);
-    border-radius:16px; padding:4px; overflow:hidden;
-  }
-  /* Both rows are right-aligned groups in a left-to-right box, matching the
-     design's own literal layout rather than mirroring it. */
-  .shop-row{
-    display:flex; align-items:center; justify-content:flex-end; gap:8px;
-    padding:8px;
-  }
-  .shop-go{
-    flex:none; width:20px; height:20px; padding:0;
-    display:flex; align-items:center; justify-content:center;
-    border:none; border-radius:16px; cursor:pointer;
-    background: var(--gray-200);
-    transition: background .18s ease, transform .12s ease;
-  }
-  .shop-go:hover{ background: var(--gray-400); }
-  .shop-go:active{ transform: scale(.9); }
-  .shop-go svg{ display:block; }
-  /* Heading/Small — 14/24 at 700 */
-  .shop-name{
-    margin:0; font-size:14px; line-height:24px; font-weight:700; color:#000;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  }
-
-  .addr-row{
-    display:flex; align-items:center; justify-content:flex-end; gap:8px;
-    height:40px; padding:8px 16px;
-    border-radius:12px; background: var(--gray-100);
+    border-radius:16px; overflow:hidden;
+    height:48px; padding:4px 16px;
+    display:flex; align-items:center; gap:8px;
   }
   /* Label/Small — 12/20 at 600 */
-  .addr-edit{
+  .shop-visit{
     flex:none; margin:0; padding:0; border:none; background:none; cursor:pointer;
     font-size:12px; line-height:20px; font-weight:600; color:#000;
     white-space:nowrap;
     transition: opacity .18s ease;
   }
-  .addr-edit:hover{ opacity:.6; }
-  /* Body/Small — 12/20 at 400 */
-  .addr{
-    flex:1; min-width:0; margin:0;
-    font-size:12px; line-height:20px; font-weight:400; color:#000;
+  .shop-visit:hover{ opacity:.6; }
+  /* Body/Medium — 14/24 at 400, where it used to be Heading/Small at 700 */
+  .shop-name{
+    flex:1 1 0; min-width:0; margin:0;
+    font-size:14px; line-height:24px; font-weight:400; color:#000;
     text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
-  .addr-pin{ flex:none; width:10.447px; height:14px; display:block; }
-  .addr-pin svg{ display:block; }
-
+  .shop-icon{ flex:none; width:14.297px; height:14px; display:block; }
+  .shop-icon svg{ display:block; }
 
   /* ================= items card ================= */
+  /* the surface itself lives on ::before so it can arrive on its own — see the
+     sequence block above */
   .items-card{
-    background: var(--gray-0);
+    position:relative;
     border-radius:16px;
     overflow:hidden;
   }
@@ -324,7 +384,7 @@
     background:var(--gray-0);
     transition: border-color .45s ease;
   }
-  .thumb i{
+  .thumb > i{
     display:block; width:54px; height:54px; border-radius:6px;
     background:#fff center/cover no-repeat;
   }
@@ -392,8 +452,14 @@
   }
   .swap.open .swap-div{ height:48px; padding:8px 12px; opacity:1; }
 
+  /* The waves are the block's own edges, so while it is open the flat rules
+     above and below it are duplicates and have to go. `!important` is doing
+     real work here: these two separators also carry `.seq`, and a running or
+     filled animation beats an ordinary declaration in the cascade, so the
+     entrance's `opacity:1` was holding the lower rule visible under the bottom
+     wave for the rest of the session. */
   .sep-swap{ transition: opacity .3s ease; }
-  .sep-swap.gone{ opacity:0; }
+  .sep-swap.gone{ opacity:0 !important; }
   .swap-dash{ flex:1 1 0; min-width:0; height:0; border-top:1px dashed var(--gray-400); }
   .swap-pill{
     flex:none; height:32px; padding:0 12px;
@@ -474,7 +540,60 @@
     font-size:12px; line-height:20px; font-weight:400; color:var(--gray-500);
     text-align:right;
   }
-  .item--alt .thumb{ border-color:var(--green-300); }
+  /* The alternative's shot carries the design's own border gradient — Green/300,
+     Green/50 at 25%, Gray/0 — turning once a second, so the green sweeps round
+     the ring. Drawn as a masked 1px band over the border.
+
+     The ANGLE is animated rather than a rotated square: a square has to be
+     oversized to cover the box's corners at every angle, which pushes the 0%
+     stop outside the visible band — the Green/300 never reaches the ring and
+     the whole thing washes out. Animating the angle lets the browser refit the
+     ramp to the box each frame, so all three stops land exactly where the
+     design puts them, whichever way it is pointing. */
+  @property --alt-ang{ syntax:'<angle>'; inherits:false; initial-value:135deg; }
+
+  /* The thumb's own border is the no-mask fallback only. Where the ring can be
+     drawn it goes transparent, so nothing green can show through the corner
+     antialiasing either. */
+  .item--alt .thumb{ border-color: var(--green-300); }
+  .alt-ring{ display:none; }
+  @supports (mask-composite: exclude) or (-webkit-mask-composite: xor){
+    .item--alt .thumb{ border-color: transparent; }
+    .alt-ring{ display:block; }
+  }
+  .alt-ring{
+    position:absolute; inset:-1px; z-index:2;
+    /* inset:-1px lands this on the thumb's BORDER box, whose radius is the 8px
+       border-radius itself — not 9. At 9 the ring's corners curved inside the
+       border's and let the green underneath show before the sweep arrived. */
+    border-radius:8px; padding:1px; pointer-events:none;
+    /* the gradient repaints each frame, so bound the damage to this 64px box
+       and tell the compositor what is moving */
+    contain: paint;
+    will-change: --alt-ang;
+    /* also a plain declaration, so a browser without @property still gets the
+       design's static angle instead of an invalid background */
+    --alt-ang:135deg;
+    background: linear-gradient(var(--alt-ang),
+      var(--green-300) 0%, var(--green-50) 25%, var(--gray-0) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            mask-composite: exclude;
+    /* 1.1s, a tenth slower than a flat second, which is enough to take the
+       hurry out of it. The timing stays LINEAR on purpose: any easing on a
+       continuously looping rotation speeds up and slows down once per turn, so
+       the loop gets a seam and the motion reads as nervous. Even speed is what
+       makes a sweep like this feel calm. */
+    animation: alt-ring-spin 1.1s linear infinite;
+  }
+  @keyframes alt-ring-spin{
+    from{ --alt-ang: 135deg; }
+    to  { --alt-ang: 495deg; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .alt-ring{ animation:none; }   /* held at the design's static angle */
+  }
   /* straddles the thumbnail's top-right corner, exactly as the design places it */
   .alt-close{
     position:absolute; top:-6px; right:6px;
@@ -496,9 +615,17 @@
     padding:12px 4px 4px;
     display:flex; flex-direction:column; gap:12px; align-items:center;
   }
-  .notes-head{ width:100%; padding:0 8px; }
+  /* The actions belong to the card, not to the field — so they sit at the head's
+     left end with the title filling the rest, the same shape the address row
+     uses. The field is then only ever a field. */
+  .notes-head{
+    width:100%; padding:0 8px;
+    display:flex; align-items:center; gap:12px;
+  }
+  .notes-acts{ flex:none; display:flex; align-items:center; gap:12px; }
   .notes-title{
-    margin:0; font-size:14px; line-height:24px; font-weight:700; color:#000;
+    flex:1 1 0; min-width:0; margin:0;
+    font-size:14px; line-height:24px; font-weight:700; color:#000;
     text-align:right;
   }
   /* Both states share one row, so writing a note and reading it back happen in
@@ -506,8 +633,8 @@
      you save. Left-to-right box with the controls at the start and the text
      filling the rest, matching how the address row is built. */
   .notes-row{
-    width:100%; min-height:48px; padding:12px 16px;
-    display:flex; align-items:center; gap:12px;
+    width:100%; min-height:48px; padding:14px 16px;
+    display:flex; align-items:center;
     border-radius:12px; background: var(--gray-100);
     transition: background .2s ease;
   }
@@ -526,21 +653,46 @@
   }
   /* Label/Small, like the address row's ویرایش */
   .notes-act{
+    display:none;
     flex:none; margin:0; padding:0; border:none; background:none; cursor:pointer;
     font-size:12px; line-height:20px; font-weight:600; color:#000;
     white-space:nowrap;
-    transition: opacity .18s ease, color .18s ease;
+    transition: opacity .18s ease;
   }
+  /* display rather than a width collapse, so the head's 12px gap closes up with
+     the button instead of leaving a hole where a hidden one used to be */
+  .notes-act.on{ display:block; animation: act-in .22s ease both; }
+  @keyframes act-in{ from{ opacity:0; transform:translateY(-2px) } to{ opacity:1; transform:none } }
   .notes-act:hover{ opacity:.6; }
   .notes-act--del{ color: var(--accent); }
-  /* the save action only exists once there is something to save */
-  .notes-act--save{
-    opacity:0; pointer-events:none;
-    max-width:0; overflow:hidden;
-    transition: opacity .2s ease, max-width .28s var(--soft);
-  }
-  .notes-row.has-text .notes-act--save{ opacity:1; pointer-events:auto; max-width:60px; }
   .notes-hidden{ display:none; }
+
+  /* ================= opening the cart =================
+     The cart is a second page, and it arrives the way the promo card does: a
+     surface that grows out from behind the pill. It is always the full frame and
+     never reflows — what animates is the CLIP. Collapsed, the clip is the pill's
+     own silhouette inset a pixel, so the surface is completely hidden behind it
+     (coincident edges are not enough: along the pill's corner arcs the
+     antialiased edge is only partly opaque and a surface flush against it bleeds
+     through). Open, the clip is the whole frame, and the frame's own 48px
+     corners take over.
+
+     Clipping rather than resizing is what keeps the page's layout still: the
+     header and the cards are laid out once, at full size, so nothing reflows
+     mid-flight. And because the clip opens upward from the pill, the page is
+     revealed bottom-first and the header is the last thing to arrive — which is
+     what a sheet rising into place should look like. */
+  .cart-surface{
+    position:absolute; inset:0;
+    z-index:10;                       /* under the bar, over the black page */
+    background: var(--gray-200);
+    clip-path: inset(calc(100% - 74px) 13px 12px 13px round 31px);
+    transition: clip-path var(--sheet-dur) var(--sheet-ease);
+    will-change: clip-path;
+  }
+  .phone.cart-open .cart-surface{
+    clip-path: inset(0 0 0 0 round 0);
+  }
 
   /* the cart scrolls in here, underneath the bar */
   .scroll{
@@ -548,8 +700,10 @@
     overflow-y:auto; overflow-x:hidden;
     -webkit-overflow-scrolling:touch;
     scrollbar-width:none; -ms-overflow-style:none;
-    /* so the end of the cart can clear the bar instead of hiding under it */
-    padding-bottom:150px;
+    /* The design reserves 137px below the last card: a 16px gap to the bar, the
+       bar's own 110, and the 11px it clears the frame's edge by. Written out so
+       it stays right if any of the three changes. */
+    padding-bottom: calc(16px + 110px + var(--bar-bottom));
   }
   .scroll::-webkit-scrollbar{ width:0; height:0; display:none; }
 
@@ -682,6 +836,13 @@
   /* both variants now carry it, so it belongs to the cart bar rather than to
      one of its states */
   .fab.cart::before{ border-color: var(--bar-edge); }
+  /* That 95% fill is for showing the cart faintly through the bar. On the FAB's
+     own page there is nothing behind it but black, and 5% of black pulls the
+     card twelve levels dark — so off the cart it is the flat cream instead. */
+  .fab:not(.cart)::before{
+    background: var(--cream);
+    -webkit-backdrop-filter:none; backdrop-filter:none;
+  }
 
   /* The threshold state paints the same fade, in the warm neutral. */
   .fab.blk{ --prog-rgb: var(--blocked-rgb); }
@@ -933,7 +1094,13 @@
      so it reads as a single motion rather than three. */
   .fab.cart .checkout-btn{ flex-grow:1; }
   .fab.cart .cta-chev{ width:0; margin-inline-end:0; opacity:0; }
-  .fab.cart .avatars{ width:0; margin-inline-start:0; opacity:0; transform:scale(.55); }
+  /* margin-inline-start lands on the bleed rather than 0, so it still cancels
+     the negative end margin and the strip's footprint really is nothing */
+  .fab.cart .avatars{
+    width:0; padding-inline:0;
+    margin-inline-start: var(--av-bleed);
+    opacity:0; transform:scale(.55);
+  }
   .fab.cart .cart-summary{ margin-inline-start:16px; }
 
   /* the threshold state's button is inert: Gray/200 with the label still white,
@@ -981,43 +1148,84 @@
   }
   .cart-price{ display:flex; flex-direction:column; align-items:flex-end; }
   .cart-price .label{ font-size:12px; color:var(--gray-600); line-height:20px; margin-bottom:-2px; }
-  .cart-price .amount{ font-size:16px; font-weight:700; color:#000; line-height:28px; }
+  /* The order of the toman mark and the number is fixed by the design, so it is
+     laid out rather than left to the bidi algorithm: an explicit left-to-right
+     flex row with the mark first, exactly the structure the design uses. That
+     also makes it immune to the reversal a run of inline-block digit cells
+     suffers inside an RTL box — the cells are laid out, not reordered. */
+  .cart-price .amount{
+    display:flex; align-items:center; gap:2px;
+    direction:ltr;
+    font-size:16px; font-weight:700; color:#000; line-height:28px;
+  }
   /* Each digit is its own window with the outgoing and incoming glyph stacked
      inside it, so only the digits that actually changed move. The column slides
      by exactly one line height — a rise sends it up, a fall sends it down — and
      a small stagger outward from the least significant digit makes it read as a
      number being counted rather than a label being swapped. */
+  /* The amount is a run of inline-block cells now, and inside an RTL box those
+     lay out right to left — which silently reversed the number. A number is an
+     LTR run whatever surrounds it, so the cells get their own direction; the
+     toman mark is outside this element, so it keeps its place on the left. */
+  .cart-price .amount #cartAmount{ flex:none; direction:ltr; unicode-bidi:isolate; white-space:nowrap; }
   .cart-price .amount .dg{
     display:inline-block; vertical-align:top;
     height:28px; overflow:hidden;
   }
-  .cart-price .amount .dg > b{ display:block; font-weight:inherit; }
+  .cart-price .amount .dg{ text-align:center; }
+  .cart-price .amount .dg > b{ display:block; position:relative; font-weight:inherit; }
   .cart-price .amount .dg > b > i{ display:block; height:28px; line-height:28px; font-style:normal; }
+  /* This face has no tabular figures — ۱ and ۹ differ by nearly 3px — so a cell
+     holding both the outgoing and incoming glyph in flow took the width of the
+     WIDER of the two for the length of the roll, and the total bulged. That
+     pushed the flex-grow button 4px narrower until the cells collapsed, which
+     is the shrink-then-refill. Only the incoming glyph is in flow now, so the
+     cell is at its settled width from the first frame; the outgoing one is
+     lifted out and simply slides through. */
+  .cart-price .amount .dg > b > i.from{
+    position:absolute; left:0; right:0;
+  }
+  .dg.up   > b > i.from{ top:-28px; }
+  .dg.down > b > i.from{ top:28px;  }
   .dg.up > b   { animation: dg-up   .46s var(--soft) var(--dg-delay, 0ms) both; }
   .dg.down > b { animation: dg-down .46s var(--soft) var(--dg-delay, 0ms) both; }
-  @keyframes dg-up  { from{ transform:translateY(0)     } to{ transform:translateY(-28px) } }
-  @keyframes dg-down{ from{ transform:translateY(-28px) } to{ transform:translateY(0)     } }
+  @keyframes dg-up  { from{ transform:translateY(28px)  } to{ transform:translateY(0) } }
+  @keyframes dg-down{ from{ transform:translateY(-28px) } to{ transform:translateY(0) } }
   @media (prefers-reduced-motion: reduce){
-    .dg.up > b{ animation:none; transform:translateY(-28px); }
-    .dg.down > b{ animation:none; transform:translateY(0); }
+    .dg.up > b, .dg.down > b{ animation:none; transform:none; }
   }
   /* the toman mark at its natural 13x8 — the size the design reserves for it.
      currentColor rather than the file's baked-in black, so the tone is set in
      one place. */
   .cart-price .amount .toman{
-    display:inline-block; width:13px; height:8px;
-    margin-inline-start:4px;   /* in RTL, inline-start faces the number */
+    flex:none; display:block; width:13px; height:8px;
     color:#000;
   }
   .cart-price .amount .toman svg{ display:block; width:100%; height:100%; }
 
+  /* The clip here is for the collapse only: going into the cart the strip
+     shrinks to nothing, and without it three 32px discs would smear across the
+     price on their way out. At rest, though, the box was exactly 80x32 — the
+     discs' own bounds — so the same clip sliced their drop shadow off on all
+     four sides.
+
+     So the clip box is bled outward by --av-bleed and pulled back by an equal
+     negative margin: it keeps clipping the collapse, the shadow gets room, and
+     the strip occupies exactly the space it did before. The collapsed rule has
+     to zero the inline padding too, or a border-box width of 0 would still
+     leave the two paddings behind. */
   .avatars{
+    --av-bleed: 6px;
     display:flex; align-items:center; flex:none;
-    width:80px;                 /* 3 x 32 - 2 x 8 overlap */
-    margin-inline-start:12px;
+    box-sizing:border-box;
+    width: calc(80px + var(--av-bleed) * 2);   /* 3 x 32 - 2 x 8 overlap, bled */
+    padding: var(--av-bleed);
+    margin: calc(var(--av-bleed) * -1);
+    margin-inline-start: calc(12px - var(--av-bleed));
     overflow:hidden;
     transition:
       width   var(--expand-dur) var(--expand-ease),
+      padding var(--expand-dur) var(--expand-ease),
       margin  var(--expand-dur) var(--expand-ease),
       transform var(--expand-dur) var(--expand-ease),
       opacity .34s ease;
@@ -1132,10 +1340,11 @@
 
 
   <div class="phone" id="phone">
+    <div class="cart-surface" id="cartSurface">
     <div class="scroll" id="scroll">
       <div class="page">
 
-        <header class="cart-head">
+        <header class="cart-head seq" style="--seq-d:270ms;--seq-t:505ms">
           <!-- same job as the Back control: it leaves the cart -->
           <button class="icon-btn" id="closeBtn" type="button" aria-label="بستن سبد خرید">
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -1145,31 +1354,22 @@
           <h1 class="cart-title" dir="rtl">سبد خرید</h1>
         </header>
 
-        <section class="shop-card">
-          <div class="shop-row">
-            <button class="shop-go" type="button" aria-label="رفتن به فروشگاه">
-              <svg width="8.75" height="7" viewBox="0 0 8.75 7" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <path d="M8.15 3.5H.95M.95 3.5 3.55.9M.95 3.5 3.55 6.1" stroke="#000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <p class="shop-name" dir="rtl">یاران‌دریان ‌ونک</p>
-          </div>
-
-          <div class="addr-row">
-            <button class="addr-edit" type="button" dir="rtl">ویرایش</button>
-            <p class="addr" dir="rtl">ارسال به شیخ‌بهایی، لادن، پلاک ۸۵</p>
-            <span class="addr-pin" aria-hidden="true">
-              <svg width="10.447" height="14" viewBox="0 0 10.447 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M5.22 13.4C5.22 13.4 9.2 8.9 9.2 5.52a3.98 3.98 0 1 0-7.96 0C1.24 8.9 5.22 13.4 5.22 13.4Z" stroke="#000" stroke-width="1.1" stroke-linejoin="round"/>
-                <circle cx="5.22" cy="5.4" r="1.55" stroke="#000" stroke-width="1.1"/>
-              </svg>
-            </span>
-          </div>
+        <section class="shop-card seq" style="--seq-d:350ms;--seq-t:485ms">
+          <button class="shop-visit" type="button" dir="rtl">مشاهده فروشگاه</button>
+          <p class="shop-name" dir="rtl">یاران‌دریان ‌ونک</p>
+          <span class="shop-icon" aria-hidden="true">
+            <!-- the supplied storefront mark. Its own box is 15 wide with empty space
+                 on the right; the viewBox is tightened to the 14.297 the design
+                 reserves, so it lands unscaled at 1:1. -->
+            <svg width="14.297" height="14" viewBox="0 0 14.297 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M13.9042 5.27399C13.9042 5.27399 13.9042 5.27399 13.9018 5.27642C13.1681 5.85216 11.9049 5.85216 11.1712 5.27642C10.921 5.07236 10.5663 5.07236 10.3161 5.27642C9.57276 5.85216 8.31925 5.85216 7.57588 5.27642C7.32567 5.07236 6.97342 5.07236 6.72077 5.27642C5.97741 5.85216 4.7239 5.85216 3.99025 5.27642C3.73032 5.07236 3.37807 5.07236 3.12543 5.27642C2.39178 5.85216 1.12855 5.85216 0.394903 5.27642C0.394903 5.27642 0.394903 5.27642 0.390045 5.27399C0.115535 5.04564 -0.0545155 4.71525 0.015934 4.36543C0.0523733 4.18567 0.108247 3.99861 0.188414 3.81156L0.533373 3.02204C0.74715 2.51189 0.858898 1.95315 0.858898 1.39684C0.858898 0.621898 1.49051 0 2.25331 0H12.0433C12.8037 0 13.4378 0.621898 13.4378 1.39441C13.4378 1.95072 13.5495 2.50946 13.7633 3.01961L14.1082 3.80913C14.1884 3.99861 14.2467 4.18324 14.2807 4.363C14.3512 4.71282 14.1811 5.04564 13.9066 5.27156L13.9042 5.27399ZM13.7779 7.14211C13.773 7.21256 13.7706 7.28544 13.7706 7.35832V12.4477C13.7706 13.3004 13.0734 14 12.2207 14H2.05897C1.20386 14 0.516368 13.3028 0.516368 12.4477L0.526085 7.35832C0.526085 7.28058 0.526085 7.20285 0.516368 7.12268C0.506651 7.01093 0.613539 6.92348 0.722857 6.95263C1.55853 7.1907 2.49624 7.13725 3.27604 6.78987C3.45338 6.71213 3.65501 6.7097 3.83235 6.78987C4.77005 7.20285 5.93126 7.2077 6.86896 6.79229C7.04873 6.71213 7.25279 6.71213 7.43013 6.79229C8.3654 7.20285 9.52175 7.2077 10.4595 6.79472C10.6416 6.71456 10.8506 6.71456 11.0328 6.79472C11.4943 7.00121 12.0093 7.11539 12.5365 7.11539C12.8887 7.11539 13.241 7.06681 13.5738 6.96963C13.6831 6.93805 13.7876 7.02794 13.7803 7.13968L13.7779 7.14211ZM5.7442 8.92035C5.7442 8.52195 5.4211 8.20128 5.02513 8.20128H3.68659C3.28819 8.20128 2.96752 8.52438 2.96752 8.92035V10.2589C2.96752 10.6549 3.29062 10.978 3.68659 10.978H5.02513C5.42353 10.978 5.7442 10.6549 5.7442 10.2589V8.92035ZM11.317 8.91549C11.317 8.51952 10.9963 8.20128 10.6028 8.20128H9.25452C8.85855 8.20128 8.54031 8.52195 8.54031 8.91549V11.8404C8.54031 12.2363 8.86098 12.5546 9.25452 12.5546H10.6028C10.9963 12.5546 11.317 12.2339 11.317 11.8404V8.91549Z" fill="var(--gray-400)"/>
+            </svg>
+          </span>
         </section>
 
 
         <section class="items-card">
-          <header class="items-head"><h2 class="items-title" dir="rtl">کالاها</h2></header>
+          <header class="items-head seq" style="--seq-d:485ms;--seq-t:450ms"><h2 class="items-title" dir="rtl">کالاها</h2></header>
 
           <div id="itemsA"></div>
           <div class="item-sep sep-swap" id="sepBefore"></div>
@@ -1204,23 +1404,28 @@
           <div id="itemsB"></div>
         </section>
 
-        <section class="notes-card">
-          <div class="notes-head"><h2 class="notes-title" dir="rtl">توضیحات سفارش</h2></div>
+        <section class="notes-card seq" style="--seq-d:810ms;--seq-t:395ms">
+          <div class="notes-head">
+            <div class="notes-acts">
+              <button class="notes-act notes-act--del" id="notesDelete" type="button" dir="rtl">حذف</button>
+              <button class="notes-act" id="notesEditBtn" type="button" dir="rtl">ویرایش</button>
+              <button class="notes-act" id="notesSave" type="button" dir="rtl">افزودن</button>
+            </div>
+            <h2 class="notes-title" dir="rtl">توضیحات سفارش</h2>
+          </div>
 
           <div class="notes-row" id="notesEdit">
-            <button class="notes-act notes-act--save" id="notesSave" type="button" dir="rtl">ذخیره</button>
             <input class="notes-field" id="notesInput" dir="rtl" type="text"
                    placeholder="مثلا رسیدین تماس بگیرین یا..." aria-label="توضیحات سفارش">
           </div>
 
           <div class="notes-row notes-hidden" id="notesView">
-            <button class="notes-act notes-act--del" id="notesDelete" type="button" dir="rtl">حذف</button>
-            <button class="notes-act" id="notesEditBtn" type="button" dir="rtl">ویرایش</button>
             <p class="notes-text" dir="rtl" id="notesText"></p>
           </div>
         </section>
 
       </div>
+    </div>
     </div>
 
     <div class="bar-dock">
@@ -1273,7 +1478,7 @@
         <div class="cart-summary">
           <div class="cart-price">
             <span class="label">جمع سبد</span>
-            <span class="amount" dir="rtl"><span id="cartAmount">۱,۴۵۰,۰۰۰</span><span class="toman" role="img" aria-label="تومان"><svg viewBox="0 0 13 8" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8.59401 1.71429H3.76766V0H8.59401V1.71429ZM12.891 2.67669C12.7976 1.93985 12.6575 1.17293 12.4862 0.360902L10.8048 1.02256C11.0228 1.89474 11.194 2.75188 11.3497 3.57895C11.4431 4.10526 11.521 4.57143 11.5832 5.03759C11.0383 5.23308 10.2443 5.41353 9.18563 5.56391C7.83114 5.7594 6.3988 5.84962 4.90419 5.84962C4.06347 5.84962 3.40958 5.80451 2.92695 5.72932C2.44431 5.6391 2.08623 5.47368 1.82156 5.23308C1.55689 4.99248 1.43234 4.61654 1.43234 4.1203C1.43234 3.57895 1.47904 2.93233 1.54132 2.16541L0.311377 2C0.28024 2.09023 0.264671 2.21053 0.249102 2.3609C0.186826 2.79699 0.124551 3.21805 0.0778443 3.60902C0.0311377 4.01504 0 4.37594 0 4.70677C0 5.95489 0.40479 6.81203 1.1988 7.29323C2.00838 7.7594 3.14491 8 4.62395 8C5.82275 8 6.97485 7.92481 8.06467 7.78947C9.17006 7.65414 10.1353 7.44361 10.9449 7.17293C11.4431 6.99248 11.8323 6.79699 12.1281 6.6015C12.424 6.40601 12.6419 6.15038 12.782 5.83459C12.9222 5.5188 13 5.11278 13 4.58647C13 4.03008 12.9533 3.38346 12.8443 2.66165L12.891 2.67669Z" fill="currentColor"/></svg></span></span>
+            <span class="amount"><span class="toman" role="img" aria-label="تومان"><svg viewBox="0 0 13 8" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8.59401 1.71429H3.76766V0H8.59401V1.71429ZM12.891 2.67669C12.7976 1.93985 12.6575 1.17293 12.4862 0.360902L10.8048 1.02256C11.0228 1.89474 11.194 2.75188 11.3497 3.57895C11.4431 4.10526 11.521 4.57143 11.5832 5.03759C11.0383 5.23308 10.2443 5.41353 9.18563 5.56391C7.83114 5.7594 6.3988 5.84962 4.90419 5.84962C4.06347 5.84962 3.40958 5.80451 2.92695 5.72932C2.44431 5.6391 2.08623 5.47368 1.82156 5.23308C1.55689 4.99248 1.43234 4.61654 1.43234 4.1203C1.43234 3.57895 1.47904 2.93233 1.54132 2.16541L0.311377 2C0.28024 2.09023 0.264671 2.21053 0.249102 2.3609C0.186826 2.79699 0.124551 3.21805 0.0778443 3.60902C0.0311377 4.01504 0 4.37594 0 4.70677C0 5.95489 0.40479 6.81203 1.1988 7.29323C2.00838 7.7594 3.14491 8 4.62395 8C5.82275 8 6.97485 7.92481 8.06467 7.78947C9.17006 7.65414 10.1353 7.44361 10.9449 7.17293C11.4431 6.99248 11.8323 6.79699 12.1281 6.6015C12.424 6.40601 12.6419 6.15038 12.782 5.83459C12.9222 5.5188 13 5.11278 13 4.58647C13 4.03008 12.9533 3.38346 12.8443 2.66165L12.891 2.67669Z" fill="currentColor"/></svg></span><span id="cartAmount"></span></span>
           </div>
           <div class="avatars" id="avatars"></div>
         </div>
@@ -1492,8 +1697,9 @@
         <button class="qty-btn qty-plus" type="button" aria-label="افزایش">${PLUS_SVG}</button>
       </div>`;
   }
-  function thumb(i, cls){
-    return `<div class="thumb${cls ? ' ' + cls : ''}"><i style="background-image:url(${PHOTOS[i]})"></i></div>`;
+  function thumb(i, cls, extra){
+    return `<div class="thumb${cls ? ' ' + cls : ''}">`
+         + `<i style="background-image:url(${PHOTOS[i]})"></i>${extra || ''}</div>`;
   }
   function itemHTML(it){
     return `<div class="item-body">
@@ -1536,7 +1742,7 @@
             </div>
           </div>
         </div>
-        ${thumb(a.thumb)}
+        ${thumb(a.thumb, null, '<span class="alt-ring" aria-hidden="true"></span>')}
         <button class="alt-close" type="button" id="altClose" aria-label="حذف پیشنهاد">${ALT_X_SVG}</button>
       </div>`;
   }
@@ -1565,6 +1771,22 @@
   fillList(document.getElementById('itemsB'), ITEMS_B, true);
   paintHost();
   swapAlt.innerHTML = altHTML(ALT_ITEM);
+
+  /* The list's rows are rendered from data, so their slots in the sequence are
+     assigned here rather than written into the markup. Only the item rows take a
+     step; a separator rides in with the row above it, so a 1px line never floats
+     on the bare ground waiting for its turn. The alternative is skipped — it is
+     inside a collapsed box and does not arrive with the page. */
+  const SEQ_ROW_FROM = 540, SEQ_ROW_STEP = 54, SEQ_ROW_DUR = 425;
+  function sequenceRows(){
+    let step = -1, last = SEQ_ROW_FROM;
+    for (const el of document.querySelectorAll('.items-card .item:not(.item--alt), .items-card .item-sep')){
+      if (el.classList.contains('item')) last = SEQ_ROW_FROM + (++step) * SEQ_ROW_STEP;
+      el.classList.add('seq');
+      el.style.setProperty('--seq-d', last + 'ms');
+      el.style.setProperty('--seq-t', SEQ_ROW_DUR + 'ms');
+    }
+  }
 
   /* Height cannot be transitioned to `auto`, so the open height is measured off
      the row itself rather than hard-coded — the alternative can gain a line
@@ -1674,13 +1896,20 @@
   const notesView = document.getElementById('notesView');
   const notesInput = document.getElementById('notesInput');
   const notesText  = document.getElementById('notesText');
+  const notesSave  = document.getElementById('notesSave');
+  const notesDel   = document.getElementById('notesDelete');
+  const notesEditB = document.getElementById('notesEditBtn');
   let note = '';
 
   function paintNotes(editing){
     notesEdit.classList.toggle('notes-hidden', !editing);
     notesView.classList.toggle('notes-hidden',  editing);
     notesText.textContent = note;
-    notesEdit.classList.toggle('has-text', notesInput.value.trim() !== '');
+    // افزودن only while there is something to add; the pair only once there is
+    // a note to act on
+    notesSave .classList.toggle('on',  editing && notesInput.value.trim() !== '');
+    notesDel  .classList.toggle('on', !editing);
+    notesEditB.classList.toggle('on', !editing);
   }
   function saveNote(){
     const v = notesInput.value.trim();
@@ -1704,14 +1933,14 @@
   }
 
   notesInput.addEventListener('input', () =>
-    notesEdit.classList.toggle('has-text', notesInput.value.trim() !== ''));
+    notesSave.classList.toggle('on', notesInput.value.trim() !== ''));
   notesInput.addEventListener('keydown', e => {
     if (e.key === 'Enter'){ e.preventDefault(); saveNote(); }
     if (e.key === 'Escape'){ notesInput.value = note; notesInput.blur(); paintNotes(!note); }
   });
-  document.getElementById('notesSave').addEventListener('click', saveNote);
-  document.getElementById('notesEditBtn').addEventListener('click', editNote);
-  document.getElementById('notesDelete').addEventListener('click', deleteNote);
+  notesSave.addEventListener('click', saveNote);
+  notesEditB.addEventListener('click', editNote);
+  notesDel.addEventListener('click', deleteNote);
   paintNotes(true);
 
   /* A stepper tap is the other writer of the total: it sets the basket, then
@@ -1778,9 +2007,10 @@
     cartAmount.innerHTML = cells.map((ch, i) => {
       if (prev[i] === ch) return `<span class="dg"><b><i>${ch}</i></b></span>`;
       const delay = (last - i) * 26;                    // least significant leads
-      const pair  = dir > 0 ? [prev[i], ch] : [ch, prev[i]];
+      /* the incoming glyph is the one left in flow, so the cell measures at the
+         width it will settle at rather than at the wider of the two */
       return `<span class="dg ${dir > 0 ? 'up' : 'down'}" style="--dg-delay:${delay}ms">`
-           + `<b><i>${pair[0]}</i><i>${pair[1]}</i></b></span>`;
+           + `<b><i class="to">${ch}</i><i class="from">${prev[i]}</i></b></span>`;
     }).join('');
     settleDigits(next);
   }
@@ -2102,7 +2332,34 @@
      around the pill would be decoration standing in for content. So the bar
      is the pill alone, and the card stays where it lives when closed: behind
      it, ready to grow out the moment one of the three has something to say. */
+  /* Every piece's travel is the gap between its own top and the bottom edge it
+     comes in from — the frame's for the cards, the items card's for its rows,
+     since that card clips. Measured on each open, while nothing is transformed,
+     because the layout moves: a saved note, an open replacement block or a
+     changed quantity all shift what is where. */
+  let seqDoneTimer;
+  const SEQ_TOTAL = 1280;
+  function measureSequence(){
+    const phoneEl = document.getElementById('phone');
+    const frameBottom = phoneEl.getBoundingClientRect().bottom;
+    const card = document.querySelector('.items-card');
+    const cardBox = card.getBoundingClientRect();
+    card.style.setProperty('--seq-y', Math.round(frameBottom - cardBox.top) + 'px');
+    for (const el of document.querySelectorAll('.page .seq')){
+      const from = card.contains(el) ? cardBox.bottom : frameBottom;
+      const y = Math.max(0, Math.round(from - el.getBoundingClientRect().top));
+      el.style.setProperty('--seq-y', y + 'px');
+    }
+  }
+
   function showPage(on){
+    const phoneEl = document.getElementById('phone');
+    clearTimeout(seqDoneTimer);
+    phoneEl.classList.remove('seq-done');
+    if (on) measureSequence();              // read the settled layout first
+    /* the surface and the page's content are one gesture, driven from one place */
+    phoneEl.classList.toggle('cart-open', on);
+    if (on) seqDoneTimer = setTimeout(() => phoneEl.classList.add('seq-done'), SEQ_TOTAL);
     pageEl.classList.toggle('show', on);
     if (!on) scrollEl.scrollTop = 0;   // re-entering the cart starts at the top
     offerAlternative(on);
@@ -2303,6 +2560,7 @@
   // fallback face would park every letter at the wrong x
   (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => {
     measureAlt();
+    sequenceRows();
     state.total = basketTotal();
     // opens on the plain FAB; tapping سبد خرید is what goes to the cart
     sync(); apply({});
