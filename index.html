@@ -1,5 +1,7 @@
 <!DOCTYPE html>
-<html lang="fa">
+<!-- alt-ring-off: the rotating gradient ring on the replacement item is parked.
+     Delete that one class below to switch it back on; nothing else to change. -->
+<html lang="fa" class="alt-ring-off">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -561,6 +563,18 @@
     .item--alt .thumb{ border-color: transparent; }
     .alt-ring{ display:block; }
   }
+
+  /* ---- ring parked ----
+     Everything below is left intact; this pair is the whole off switch, driven
+     by `alt-ring-off` on <html>. With the ring gone the thumb takes the same
+     Gray/0 edge as the host row above it, so the replacement item sits in the
+     block without a rim of its own — the tint and the badge are what mark it.
+     Note the border is set rather than removed: the 1px is load-bearing, and
+     dropping it would resize the thumbnail against every other row. Both
+     selectors carry one more class than the rules they override, so they win
+     without !important. */
+  .alt-ring-off .alt-ring{ display:none; }
+  .alt-ring-off .item--alt .thumb{ border-color: var(--gray-0); }
   .alt-ring{
     position:absolute; inset:-1px; z-index:2;
     /* inset:-1px lands this on the thumb's BORDER box, whose radius is the 8px
@@ -687,6 +701,13 @@
     z-index:10;                       /* under the bar, over the black page */
     background: var(--gray-200);
     clip-path: inset(calc(100% - 74px) 13px 12px 13px round 31px);
+    /* A plain CSS transition, deliberately. Driving this from script with
+       Element.animate() instead was measurably worse on real hardware — same
+       property, same curve, but a handful of frames for the whole trip — so
+       the transition is the path that composites well here and it stays.
+       The first-open snap it used to have is dealt with in showPage(), by
+       making sure the before-change value has actually been resolved before
+       the class flips. */
     transition: clip-path var(--sheet-dur) var(--sheet-ease);
     will-change: clip-path;
   }
@@ -2352,11 +2373,24 @@
     }
   }
 
+  const cartSurfaceEl = document.getElementById('cartSurface');
+  /* A transition can only run if the browser is holding a resolved
+     before-change value for the property. The closed state is written as
+     `inset(calc(100% - 74px) ...)`, whose percentage has to be resolved against
+     a laid-out box, and on the first open after a cold load it evidently is
+     not: the screen recording has the FAB's own transitions animating on that
+     same tap while this one covered the whole distance in one frame, and every
+     later open was fine. Reading the computed value flushes that resolution, so
+     the class flip below has a real pair to interpolate between. It costs one
+     style read per open. */
+  function primeSheet(){ return getComputedStyle(cartSurfaceEl).clipPath; }
+
   function showPage(on){
     const phoneEl = document.getElementById('phone');
     clearTimeout(seqDoneTimer);
     phoneEl.classList.remove('seq-done');
     if (on) measureSequence();              // read the settled layout first
+    primeSheet();
     /* the surface and the page's content are one gesture, driven from one place */
     phoneEl.classList.toggle('cart-open', on);
     if (on) seqDoneTimer = setTimeout(() => phoneEl.classList.add('seq-done'), SEQ_TOTAL);
@@ -2564,6 +2598,24 @@
     state.total = basketTotal();
     // opens on the plain FAB; tapping سبد خرید is what goes to the cart
     sync(); apply({});
+
+    /* Whatever the first open has to do for the first time, it should not be
+       doing while the sheet is trying to animate. The product shots are CSS
+       backgrounds on a page sitting at opacity 0, so nothing forces them to be
+       decoded until it is revealed; decoding them now puts them in the image
+       cache ahead of the tap. measureSequence() is called for its side effect
+       of a full layout read of the cart page, so the tap is not the first one
+       to pay for it. Both are best-effort — if either fails the open still
+       works, it is only warmer when they succeed. */
+    const warm = () => {
+      for (const src of PHOTOS){
+        const im = new Image();
+        im.src = src;
+        if (im.decode) im.decode().catch(() => {});
+      }
+      try { measureSequence(); primeSheet(); } catch (e) {}
+    };
+    (window.requestIdleCallback || (fn => setTimeout(fn, 200)))(warm);
   });
 </script>
 
